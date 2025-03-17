@@ -73,7 +73,7 @@ def main():
       rooms[room][addr] = (token, time.time())
       print(f"{room}, {addr}: {message.decode('utf-8')}")
 
-      broadcast_message(sock,room,addr,message)
+      broadcast_message(sock,room,addr,data)
 
     except Exception as e:
       print(f"エラー: {e}")
