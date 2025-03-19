@@ -1,40 +1,64 @@
 import socket
 import threading
 import time
+import pickle
 
 SERVER_HOST = '0.0.0.0'
 SERVER_PORT = 12345
 BUFFERSIZE = 4096
 TIMEOUT = 60
 CHECK_INTERVAL = 5
+PICKLE_FILE = 'rooms.pickle' #ここは実際のファイル名に合わせる
 
-rooms = {}  # {room_name: {addr: (token, last_active), ...}}
 
-'''一定期間メッセージのないクライアントを削除'''
+rooms = {}  # {room_name: {'host_addr': addr, 'clients': {addr: (token, last_active)}}}
+
+'''pickleからroomsをロードする関数'''
+def load_rooms():
+  try:
+    with open(PICKLE_FILE, 'rb') as f:
+      rooms = pickle.load(f)
+      return rooms
+  except FileNotFoundError:
+    return {}
+
+
+'''一定期間メッセージのないクライアントを削除、ホストが抜けたときにroomを削除'''
 def remove_inactive_clients():
   while True:
+    rooms = load_rooms()
     current_time = time.time()
-    for room, clients in list(rooms.items()):
-      inactive = [addr for addr, (_, last_active) in clients.items() if current_time - last_active > TIMEOUT]
+    for room, info in list(rooms.items()):
+      delete = False
+      inactive = [addr for addr, (_, last_active) in info['clients'].items() if current_time - last_active > TIMEOUT]
       for addr in inactive:
-        print(f"クライアントがタイムアウトしました: {addr}（ルーム: {room}）")
-        del rooms[room][addr]
-      if not rooms[room]:
-        print(f"ルーム{room}を閉じました")
+        if addr == info['host_addr']:
+          print(f"ホスト{addr}が退出しました。　ルーム{room}を閉じます。")
+          del rooms[room]
+          delete = True
+          break
+        else:
+          print(f"クライアントがタイムアウトしました: {addr}（ルーム: {room}）")
+          del rooms[room]['clients'][addr]
+      if room in rooms and not rooms[room]['clients']:
+        print(f"クライアントがいなくなったので、ルーム{room}を閉じました")
         del rooms[room]
+        delete = True
+      if delete:
+        with open(PICKLE_FILE, 'wb') as f:
+          pickle.dump(rooms, f)
     time.sleep(CHECK_INTERVAL)
 
 '''同一ルームのクライアントにメッセージを転送'''
 def broadcast_message(sock, room, sender_addr, message):
-  for addr in rooms.get(room, {}):
+  for addr in rooms.get(room, {}).get('clients', {}):
     if addr != sender_addr:
       try:
         sock.sendto(message, addr)
       except Exception as e:
         print(f"送信エラー({addr})： {e}")
 
-#rooms(roomとtoken)：TCPと共有の必要
-#方法：DB、共有ファイル(json)
+
 def main():
   sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   sock.bind((SERVER_HOST,SERVER_PORT))
@@ -46,6 +70,9 @@ def main():
   thread.start()
 
   while True:
+    if 'last_pickle_load' not in locals() or time.time() - last_pickle_load > 1:
+            rooms = load_rooms()
+            last_pickle_load = time.time()
     try:
       data, addr = sock.recvfrom(BUFFERSIZE)
     except socket.timeout:
@@ -66,7 +93,7 @@ def main():
       message = data[idx:]
 
       #クライアントの認証ちぇっく
-      if room not in rooms or addr not in rooms[room] or rooms[room][addr][0] != token:
+      if room not in rooms or addr not in rooms[room] or rooms[room]['clients'][addr][0] != token:
         print(f"不正なクライアント {addr}")
         continue
 
