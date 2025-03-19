@@ -8,7 +8,7 @@ SERVER_PORT = 12345
 BUFFERSIZE = 4096
 TIMEOUT = 60
 CHECK_INTERVAL = 5
-PICKLE_FILE = 'rooms.pickle' #ここは合わせる
+PICKLE_FILE = 'rooms.pkl' #ここは合わせる
 
 
 rooms = {}  # {room_name: {'host_addr': addr, 'clients': {addr: (token, last_active)}}}
