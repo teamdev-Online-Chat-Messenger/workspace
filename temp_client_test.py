@@ -14,6 +14,7 @@ def client_task(client_id):
     user_name = f"user{client_id}".encode('utf-8')
 
     if client_id == 2:
+        room_name = "room1".encode("utf-8")
         message = (
             len(room_name).to_bytes(1, 'big')  # room_name のサイズ
             + b"\x02"  # operation

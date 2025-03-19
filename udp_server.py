@@ -8,7 +8,9 @@ BUFFERSIZE = 4096
 TIMEOUT = 60
 CHECK_INTERVAL = 5
 
-rooms = {}  # {room_name: {addr: (token, last_active), ...}}
+
+#host addr  , client addr (room_nameの中に書き込めばいい)
+rooms = {}  # {(room_name,host_addr): {addr: (token, last_active), ...}}
 
 '''一定期間メッセージのないクライアントを削除'''
 def remove_inactive_clients():
