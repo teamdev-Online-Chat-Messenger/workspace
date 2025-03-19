@@ -8,7 +8,7 @@ SERVER_PORT = 12345
 BUFFERSIZE = 4096
 TIMEOUT = 60
 CHECK_INTERVAL = 5
-PICKLE_FILE = 'rooms.pickle' #ここは実際のファイル名に合わせる
+PICKLE_FILE = 'rooms.pickle' #ここは合わせる
 
 
 rooms = {}  # {room_name: {'host_addr': addr, 'clients': {addr: (token, last_active)}}}
@@ -97,7 +97,7 @@ def main():
         print(f"不正なクライアント {addr}")
         continue
 
-      rooms[room][addr] = (token, time.time())
+      rooms[room]['clients'][addr] = (token, time.time())
       print(f"{room}, {addr}: {message.decode('utf-8')}")
 
       broadcast_message(sock,room,addr,data)
