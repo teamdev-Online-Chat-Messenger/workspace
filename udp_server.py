@@ -2,6 +2,7 @@ import socket
 import threading
 import time
 import pickle
+from cryptography.hazmat.primitives import serialization
 
 SERVER_HOST = '0.0.0.0'
 SERVER_PORT = 12345
@@ -12,6 +13,37 @@ PICKLE_FILE = 'rooms.pkl' #ここは合わせる
 
 
 rooms = {}  # {room_name: {'host_addr': addr, 'clients': {addr: (token, last_active)}}}
+
+'''
+暗号化について
+クライアントからのメッセージ：
+公開鍵を クライアント → TCPサーバー → UDPサーバー
+'''
+'''暗号化に伴いroomの形状変更(クライアントが作る公開鍵を保持する)
+rooms[room_name] = {
+    'host_addr': addr,
+    'clients': {
+        addr: {
+            'token': token,
+            'last_active': time.time(),
+            'public_key': client_public_key_pem.decode('utf-8')  # クライアントの公開鍵をPEM形式で保存
+        }
+    }
+}
+'''
+
+'''
+UDPサーバー→クライアント のメッセージ：
+サーバーからのメッセージ：公開鍵をUDP TCP クライアント
+'''
+#実際にはTCPが秘密鍵、公開鍵を作り公開鍵はクライアントに送る
+'''
+with open('server_private_key.pem', 'rb') as f:   #TCPで作った秘密鍵を取得する(.pemファイル名はTCPに合わせる)
+    server_private_key = serialization.load_pem_private_key(
+        f.read(),
+        password=None
+    )
+'''
 
 '''pickleからroomsをロードする関数'''
 def load_rooms():
