@@ -3,9 +3,9 @@ import threading
 import logging
 
 
-#あとはreceive_message関数を実装する
+user_name = ""
 
-logging.basicConfig(level = logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(level = logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -15,10 +15,19 @@ tcp_server_port = 9000
 udp_server_addr = "127.0.0.1"
 udp_server_port = 12345
 
+print("enter ip")
+user_ip = input() #testのために異なるローカルアドレス割り当てるための記述．実際にはIPを選択させる処理はいらない
+print("enter udp port")
+user_udp_port = input()
+
+tcp_socket.bind((user_ip,0))
+
+
 tcp_server_address = (tcp_server_addr, tcp_server_port)
 udp_server_address = (udp_server_addr, udp_server_port)
 
 tcp_socket.connect(tcp_server_address)
+
 
 class Client:
     pass
@@ -125,20 +134,14 @@ def generate_message():
     message = input()
     return message
 
-def generate_data(token):
+def generate_udp_data(room_name,token,is_ini_message): #is_ini_message == True なら初回udpサーバへの接続メッセージ生成
     #header:RoomNameSize(1)+TokenSize(1)
     #body: RoomName + Token + Message
-
-    while True:
-        logging.info("Enter your room name")
-            # ルーム名の記述
-        room_name = input()
-        if len(room_name) == 0:
-            continue
-        break
-
     header = create_message_header(room_name,token)
-    message = generate_message()
+    if is_ini_message:
+        message = "New User:"+user_name+ " Joined"
+    else:
+        message = generate_message()
     body = room_name.encode('utf-8')+token.encode('utf-8')+message.encode('utf-8')
 
     return header + body
@@ -146,18 +149,17 @@ def generate_data(token):
 
 def create_udp_socket():
     sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-    print("enter udp port")
-    user_udp_port = input()
-    sock.bind(('0.0.0.0',int(user_udp_port))) #bind するアドレスは仮
+
+    sock.bind((user_ip,int(user_udp_port))) #bind するアドレスは仮
 
     return sock
 
-def send_messages(token,udp_sock,thread1):
+def send_messages(room_name,token,udp_sock,thread1):
     try:
          while True:
             logging.debug("Thread動作確認2:%s",{thread1.is_alive()})
 
-            message = generate_data(token) #現状メッセージ打つたびに部屋名入力しないといけない（要修正）
+            message = generate_udp_data(room_name,token,False) #現状メッセージ打つたびに部屋名入力しないといけない（要修正）
             udp_sock.sendto(message,udp_server_address)
      
     finally:
@@ -180,11 +182,24 @@ def main():
     thread1 = threading.Thread(target=receive_messages,args=(udp_sock,),daemon=True)
     thread1.start()
 
-    token = createTcrpHeader()
+    token = createTcrpHeader() #createTCPHeader と その内部の送信処理は分けて書いた方がいいので，あとで分ける
 
     logging.debug("Thread動作確認:%s",{thread1.is_alive()})
 
-    send_messages(token,udp_sock,thread1)
+    while True:
+        logging.info("Enter your room name to join chat room")
+            # ルーム名の記述
+        room_name = input()
+        if len(room_name) == 0:
+            continue
+        break
+
+    initial_config_message = generate_udp_data(room_name,token,True) #コンフィグメッセージならTrue
+    udp_sock.sendto(initial_config_message,udp_server_address)#udpチャットルームにjoinした瞬間にサーバへパケット送信して，udpサーバにこのクライアントのポート伝達
+
+
+    send_messages(room_name,token,udp_sock,thread1)
     
 if __name__ == "__main__":
     main()
+

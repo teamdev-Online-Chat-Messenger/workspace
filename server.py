@@ -40,7 +40,7 @@ class Room:
         if is_host:
             self.host_token = token     #hostに関する記録処理はhashmap上手に利用すれば，host_user,host_tokenのうちどちらかのみ利用すればいいが，今は楽なので，両方記述している．
 
-        share_data_content = {"host_addr":self.token_ip[self.host_token],"clients":{address:(token,time.time())}} #UDPサーバーと共有するデータ
+        share_data_content = {"host_addr":self.token_ip[self.host_token][0],"clients":{address[0]:(token,time.time())}} #UDPサーバーと共有するデータ
     
 
         return token,share_data_content
@@ -133,7 +133,7 @@ class Server:
                         token,share_data_content = room.setting_room(False,user_name,client_address)
                         #シェアするデータをデシリアライズ化してlocal fileにデータ書き込む
 
-                        self.share_data_list[room_name]["clients"]= {client_address:(token,time.time())}
+                        self.share_data_list[room_name]["clients"][client_address[0]]= (token,time.time())
 
                         logging.debug("TCP と共有するデータ:%s",self.share_data_list)
                         with open("rooms.pkl","wb") as f:

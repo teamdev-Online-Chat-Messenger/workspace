@@ -1,4 +1,5 @@
 import sys
+import os
 import socket
 import threading
 import time
@@ -15,8 +16,9 @@ TIMEOUT = 600
 CHECK_INTERVAL = 5
 PICKLE_FILE = 'rooms.pkl' #ここは合わせる
 
-
+#この形式addr=(ip,port) --> addr=ip　に変更（TCP,UDPソケットで利用するポートが異なるから）
 rooms = {}  #{room_name: {'host_addr': addr, 'clients': {addr: (token, last_active)}},room_name2: {...}}
+ip_udp_port = {}
 
 '''pickleからroomsをロードする関数'''
 def load_rooms():
@@ -55,15 +57,19 @@ def remove_inactive_clients():
     time.sleep(CHECK_INTERVAL)
 
 '''同一ルームのクライアントにメッセージを転送'''
-def broadcast_message(sock, room, sender_addr, message):
-  logging.debug("broadcast_message is called")
+def broadcast_message(sock, rooms, room, sender_addr, message):
+  logging.debug("room:%s",room)
+  logging.debug("broadcast_message is called:rooms:%s",rooms)
   for addr in rooms.get(room, {}).get('clients', {}):
-    if addr != sender_addr:
+    logging.debug("broad_cast:log: addr %s",addr)
+    if addr != sender_addr[0]: #この判定をポート除いて，IPだけで判定する
       try:
-        logging.debug("data:%s is sent to Address:%s",message,addr)
-        sock.sendto(message, addr)
+        logging.debug("data:%s is sent to Address:%s %s",message,addr,ip_udp_port[addr])
+        sock.sendto(message, (str(addr),int(ip_udp_port[addr])))
       except Exception as e:
-        print(f"送信エラー({addr})： {e}")
+        e_type,e_object,e_traceback = sys.exc_info()
+        print(f"エラー: {e}")
+        print(f"行::{e_traceback.tb_lineno}")
 
 
 def main():
@@ -83,7 +89,9 @@ def main():
             last_pickle_load = time.time()
     try:
       data, addr = sock.recvfrom(BUFFERSIZE)
-      logging.debug("receive data from udp client:%s",data)
+
+      ip_udp_port[addr[0]] = addr[1]  #各UDPクライアントのPort番号を記録
+
     except socket.timeout:
       continue
     if len(data) < 2:
@@ -102,16 +110,15 @@ def main():
       message = data[idx:]
 
       #クライアントの認証チェック
-      logging.debug("room not in rooms:%s",room not in rooms)
-
-      logging.debug("token:%s",rooms[room]['clients'][addr[0]][0])
-      
       flag = True
-      # addr not in rooms[room] --> addr not in rooms[room]['clients']
-      #if room not in rooms or addr not in rooms[room]['clients'] or rooms[room]['clients'][addr][0] != token:
 
-      if room not in rooms or rooms[room]['clients'][addr[0]][0] != token:
-        continue
+      #ip:udp_socket の記録しておく
+
+      if (room not in rooms) or (rooms[room]['clients'][addr[0]][0] != token):
+          logging.info("認証失敗")
+          logging.debug("correct token: %s",rooms[room]['clients'][addr[0]][0])
+          logging.debug("user token:%s",token)
+          continue
       
       for room_addr in rooms[room]['clients'].keys():
           logging.debug("test debug:%s",room_addr)
@@ -122,10 +129,10 @@ def main():
         continue
 
 
-      rooms[room]['clients'][addr] = (token, time.time())
+      rooms[room]['clients'][addr[0]] = (token, time.time())
       print(f"{room}, {addr}: {message.decode('utf-8')}")
 
-      broadcast_message(sock,room,addr,data)
+      broadcast_message(sock,rooms,room,addr,data)
 
     except Exception as e:
       e_type,e_object,e_traceback = sys.exc_info()
@@ -135,4 +142,7 @@ def main():
       continue
 
 if __name__ == '__main__':
-  main()
+  try:
+    main()
+  finally:
+    os.remove("rooms.pkl")
