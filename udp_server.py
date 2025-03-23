@@ -35,10 +35,12 @@ def load_rooms():
 def remove_inactive_clients():
   while True:
     rooms = load_rooms()
+    logging.debug("remove_inactive:: rooms:%s",rooms)
     current_time = time.time()
     for room, info in list(rooms.items()):
       delete = False
       inactive = [addr for addr, (_, last_active) in info['clients'].items() if current_time - last_active > TIMEOUT]
+      logging.debug("remove_ina::inactive:%s",inactive)
       for addr in inactive:
         if addr == info['host_addr']:
           print(f"ホスト{addr}が退出しました。　ルーム{room}を閉じます。")
