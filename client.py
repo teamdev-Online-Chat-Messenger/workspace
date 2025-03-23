@@ -2,8 +2,7 @@ import socket
 import threading
 import logging
 
-
-user_name = ""
+room_name_token = {} #userが指定した部屋名と，それに対応したtokenを記録
 
 logging.basicConfig(level = logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -15,10 +14,9 @@ tcp_server_port = 9000
 udp_server_addr = "127.0.0.1"
 udp_server_port = 12345
 
-print("enter ip")
-user_ip = input() #testのために異なるローカルアドレス割り当てるための記述．実際にはIPを選択させる処理はいらない
-print("enter udp port")
-user_udp_port = input()
+
+user_ip = input("Enter IP Address (127.0.0.1~) --> ") #testのために異なるローカルアドレス割り当てるための記述．実際にはIPを選択させる処理はいらない
+user_udp_port = input("Enter Port for UDP --> ")
 
 tcp_socket.bind((user_ip,0))
 
@@ -34,8 +32,7 @@ class Client:
 
 def getUserName():
     while True:
-        print("Enter your name")
-        user_name = input()
+        user_name = input("Enter User Name --> ")
         if len(user_name) == 0:
             continue
         user_name_size = len(user_name.encode('utf-8'))
@@ -44,10 +41,9 @@ def getUserName():
 
 # オペレーション
 def getOperation():
-    print("Would you like to create a new room or join an existing one? (Type 'create' or 'join')")
     while True:
         # ルームを作るか、参加するかを質問
-        user_choice = input()
+        user_choice = input("Would you like to create a new room or join an existing one? (Type 'create' or 'join') --> ")
         # 小文字にする
         user_choice = user_choice.lower()
         # ルームを作成
@@ -67,25 +63,17 @@ def getOperation():
 # ルーム名の取得
 def getRoomInfo():
     while True:
-        print("Enter your room name")
         # ルーム名の記述
-        room_name = input()
+        room_name = input("Enter Your Room Name --> ")
         if len(room_name) == 0:
             continue
         room_name_size = len(room_name.encode('utf-8'))
         return room_name, room_name_size
 
 # tcrpヘッダーの作成
-def createTcrpHeader():
-    room_name, room_name_size = getRoomInfo()
+def createTcrpHeader(room_name,room_name_size,user_name,user_name_size):
     operation = getOperation()
     state = 0
-    user_name, user_name_size = getUserName()
-
-    # 修正1:sendメソッド自体バイト列引数に持つから，辞書型ではなく，文字列エンコードしたものを送信
-    #payload = {
-    #    "user_name": user_name,
-    #}
 
     payload = user_name.encode('utf-8')
 
@@ -93,7 +81,6 @@ def createTcrpHeader():
         len(room_name).to_bytes(1, 'big') +
         operation.to_bytes(1, 'big') +
         state.to_bytes(1, 'big') +
-        # payLoadSize
         len(payload).to_bytes(29, 'big')
     )
 
@@ -120,8 +107,9 @@ def createTcrpHeader():
     #responsed_room_name = responsed_token[32:32+responsed_room_name_size].decode('utf-8')
     responsed_payload = responsed_token[32+responsed_room_name_size:len(responsed_token)].decode('utf-8')
 
-    logging.info("responsed_token:%s",responsed_payload)    
-    return responsed_payload
+    logging.debug("responsed_token:%s",responsed_payload) 
+
+    return responsed_payload #受信したトークン
 
 # udp側の処理
 
@@ -130,8 +118,7 @@ def create_message_header(room_name,token):
         return len(room_name).to_bytes(1,'big') + len(token.encode('utf-8')).to_bytes(1,'big')
 
 def generate_message():
-    print("Enter your message")
-    message = input()
+    message = input("Enter Your Message --> ")
     return message
 
 def generate_udp_data(room_name,token,is_ini_message): #is_ini_message == True なら初回udpサーバへの接続メッセージ生成
@@ -157,8 +144,6 @@ def create_udp_socket():
 def send_messages(room_name,token,udp_sock,thread1):
     try:
          while True:
-            logging.debug("Thread動作確認2:%s",{thread1.is_alive()})
-
             message = generate_udp_data(room_name,token,False) #現状メッセージ打つたびに部屋名入力しないといけない（要修正）
             udp_sock.sendto(message,udp_server_address)
      
@@ -178,21 +163,27 @@ def receive_messages(udp_sock):
     finally:
         udp_sock.close()
 
+
 def main():
+
     udp_sock = create_udp_socket()
     thread1 = threading.Thread(target=receive_messages,args=(udp_sock,),daemon=True)
     thread1.start()
-
-    token = createTcrpHeader() #createTCPHeader と その内部の送信処理は分けて書いた方がいいので，あとで分ける
-
-    logging.debug("Thread動作確認:%s",{thread1.is_alive()})
-
+    token = "No token"
+    
+    while token == "No token":
+        room_name,room_name_size = getRoomInfo()
+        token = createTcrpHeader(room_name,room_name_size,user_name,user_name_size) #createTCPHeader と その内部の送信処理は分けて書いた方がいいので，あとで分ける
+        
+        logging.info("token:::%s",token)
+    room_name_token[room_name] = token
     while True:
-        logging.info("Enter your room name to join chat room")
-            # ルーム名の記述
-        room_name = input()
-        if len(room_name) == 0:
-            continue
+        # ルーム名の記述
+        room_name = input("Enter Your Room Name To Join Chat Room--> ")
+        #クライアントが指定したルーム名に対するtokenを所持していない場合はエラー
+        if room_name not in room_name_token.keys(): 
+            logging.info("No Token Error")
+            continue        
         break
 
     initial_config_message = generate_udp_data(room_name,token,True) #コンフィグメッセージならTrue
@@ -202,5 +193,6 @@ def main():
     send_messages(room_name,token,udp_sock,thread1)
     
 if __name__ == "__main__":
+    user_name, user_name_size = getUserName()
     main()
 

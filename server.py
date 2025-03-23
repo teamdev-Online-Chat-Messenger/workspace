@@ -8,13 +8,8 @@ import json
 import logging
 
 logging.basicConfig(level = logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
-PICKLE_FILE="rooms.pkl"
+PICKLE_FILE="rooms.pkl"#addrを(ip,port)からipのみ記録する形に変更（TCP,UDPで利用するポート異なるから，TCP側でport記録しても冗長のため省いた）
 
-#host addr  , client addr (room_nameの中に書き込めばいい)
-#rooms = {}  # {(room_name,host_addr) : {addr: (token, last_active), ...}}
-#ローカルのファイルに　　上記形式で　データ書き込めれば，実装の詳細はあまり関係ない（オブジェクトを管理するわけではないから）
-#したがって，　room_lists に，[{(Room.room_name,Room.host_addr):{addr:(token,last_active),...}}]を登録していく
-#登録するたびに，room_lists のローカルファイルへの書き込みを行う
 
 class Room:
     def __init__(self,room_name,host_user):
@@ -39,11 +34,9 @@ class Room:
         self.token_time[token] = time.time()
       
         if is_host:
-            self.host_token = token     #hostに関する記録処理はhashmap上手に利用すれば，host_user,host_tokenのうちどちらかのみ利用すればいいが，今は楽なので，両方記述している．
-
+            self.host_token = token     
         share_data_content = {"host_addr":self.token_ip[self.host_token],"clients":{address[0]:(token,time.time())}} #UDPサーバーと共有するデータ
     
-
         return token,share_data_content
 
 class Server:
@@ -118,31 +111,36 @@ class Server:
                 logging.debug("receive payload from client: room_name:%s operation:%s state:%s payload:%s", room_name, operation, state, operation_payload)
 
                 token = None
+                
+                #udpサーバーが書き込んだ共有データの読み込み
+                self.share_data_list = self.load_rooms()
+                
                 #operationに対応した処理
                 if operation == 1: #ルーム生成などのセッティング
-                    host_user_name = operation_payload #operation==1のときの，operation_payloadにはユーザ名が入っている．このユーザがRoomのホストとなる．
-                    new_room = Room(room_name,host_user_name) 
-                    token,share_data_content = new_room.setting_room(True,host_user_name,client_address) #生成したtokenを受け取る＋TCPサーバと共有するRoom管理オブジェクトを受け取る．
-                    self.room_list.append(new_room) #ルームの登録
 
-                    #UDPが編集したデータshare_data_list読み込む
-                    self.share_data_list = self.load_rooms()
-                    self.share_data_list[room_name] = share_data_content #share_data_content = {"host_addr":(ip,port),"clients":{(ip1,port1),...}}"
-                    #joinの場合はルームオブジェクトの，オブジェクト取り出し，　rooms[room_name]で取り出せる辞書型を定義している必要がある．　この辞書の，rooms[room_name][host_addr] と rooms[room_name][clients][(ipaddr,port)] = (token,last_active) を追加する．
-                    logging.debug("TCP と共有するデータ:%s",self.share_data_list)
-                    #シェアするデータをシリアライズ化してlocal fileにデータ書き込む
-                    with open("rooms.pkl","wb") as f:
-                            pickle.dump(self.share_data_list,f)
-                
-                    status_code = "OP1OK"  #ステータスコード
+                    if room_name in self.share_data_list: #すでに登録済みの部屋名
+                        status_code = "ROOM EXIST ERROR"
+
+                    else:
+                        host_user_name = operation_payload #operation==1のときの，operation_payloadにはユーザ名が入っている．このユーザがRoomのホストとなる．
+                        new_room = Room(room_name,host_user_name) 
+                        token,share_data_content = new_room.setting_room(True,host_user_name,client_address) #生成したtokenを受け取る＋TCPサーバと共有するRoom管理オブジェクトを受け取る．
+                        self.room_list.append(new_room) #ルームの登録
+
+                        self.share_data_list[room_name] = share_data_content #share_data_content = {"host_addr":(ip,port),"clients":{(ip1,port1),...}}"
+                        #joinの場合はルームオブジェクトの，オブジェクト取り出し，　rooms[room_name]で取り出せる辞書型を定義している必要がある．　この辞書の，rooms[room_name][host_addr] と rooms[room_name][clients][(ipaddr,port)] = (token,last_active) を追加する．
+                        logging.debug("TCP と共有するデータ:%s",self.share_data_list)
+                        #シェアするデータをシリアライズ化してlocal fileにデータ書き込む
+                        with open("rooms.pkl","wb") as f:
+                                pickle.dump(self.share_data_list,f)
+                    
+                        status_code = "OP1OK"  #ステータスコード
 
                 elif operation == 2: #ユーザのルーム参加
                     room = self.find_room(room_name)
                     if  room is not None:
                         user_name = operation_payload 
                         token,share_data_content = room.setting_room(False,user_name,client_address)
-                    #share_data_list読み込む
-                        self.share_data_list = self.load_rooms()
                         self.share_data_list[room_name]["clients"][client_address[0]]= (token,time.time())
 
                         logging.debug("TCP と共有するデータ:%s",self.share_data_list)
@@ -152,9 +150,11 @@ class Server:
                         status_code = "OP2OK"  #ステータスコード
 
                     else:
-                        status_code = " Room not found Error" #ステータス
+                        status_code = " ROOM NOT FOUND ERROR" #ステータス
                         token = None
-
+                
+                else:
+                        status_code = " INVALID OP ERROR"
      
                 client_socket.send(self.make_message(room_name,0,state+1,status_code)) #ステータスコード送信処理（room_name,operation,status,messageが引数）
                 client_socket.send(self.make_message(room_name,0,state+2,token)) #tokenをクライアントに送信する（TCRPの形式に沿ってメッセージを送信するのでroom_name + tokenの形）ので，クライアント側でtokenのみ抽出する必要がある．
