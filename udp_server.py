@@ -60,8 +60,8 @@ def remove_inactive_clients():
   while True:
     rooms = load_rooms()
     current_time = time.time()
+    delete = False
     for room, info in list(rooms.items()):
-      delete = False
       inactive = [addr for addr, (_, last_active) in info['clients'].items() if current_time - last_active > TIMEOUT]
       for addr in inactive:
         if addr == info['host_addr']:
@@ -76,13 +76,16 @@ def remove_inactive_clients():
         print(f"クライアントがいなくなったので、ルーム{room}を閉じました")
         del rooms[room]
         delete = True
-      if delete:
-        with open(PICKLE_FILE, 'wb') as f:
-          pickle.dump(rooms, f)
+    if delete:
+      with open(PICKLE_FILE, 'wb') as f:
+        pickle.dump(rooms, f)
     time.sleep(CHECK_INTERVAL)
 
 '''同一ルームのクライアントにメッセージを転送'''
 def broadcast_message(sock, room, sender_addr, message):
+  rooms = load_rooms()  # pickleから最新のデータを読み込む
+  if room not in rooms:
+    return
   for addr in rooms.get(room, {}).get('clients', {}):
     if addr != sender_addr:
       try:
@@ -109,6 +112,7 @@ def main():
       data, addr = sock.recvfrom(BUFFERSIZE)
     except socket.timeout:
       continue
+
     if len(data) < 2:
       continue
 
@@ -125,9 +129,13 @@ def main():
       message = data[idx:]
 
       #クライアントの認証ちぇっく
-      if room not in rooms or addr not in rooms[room] or rooms[room]['clients'][addr][0] != token:
-        print(f"不正なクライアント {addr}")
-        continue
+      if room not in rooms or addr not in rooms[room]['clients'] or rooms[room]['clients'][addr][0] != token:
+
+        time.sleep(0.1)  # 100ミリ秒だけ待つ（重要）
+        rooms = load_rooms()  # 再読み込み（重要）
+        if room not in rooms or addr not in rooms[room]['clients'] or rooms[room]['clients'][addr][0] != token:
+          print(f"不正なクライアント {addr}")
+          continue
 
       rooms[room]['clients'][addr] = (token, time.time())
       print(f"{room}, {addr}: {message.decode('utf-8')}")
