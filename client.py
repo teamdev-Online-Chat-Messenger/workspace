@@ -5,7 +5,7 @@ import logging
 
 user_name = ""
 
-logging.basicConfig(level = logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(level = logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 
 tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -171,11 +171,12 @@ def receive_messages(udp_sock):
     try:
         while True:
             message,_ = udp_sock.recvfrom(4094)
+            room_name_size = message[0]
+            token_size = message[1]
             logging.debug("receive message from udp server:%s",message)
+            logging.info("receive message:%s",message[2+room_name_size+token_size:len(message)].decode('utf-8'))
     finally:
         udp_sock.close()
-    
-
 
 def main():
     udp_sock = create_udp_socket()

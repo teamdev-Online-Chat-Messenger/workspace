@@ -3,11 +3,12 @@ import time
 import threading
 import secrets
 import pickle
-
+import sqlite3
+import json
 import logging
 
 logging.basicConfig(level = logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
-
+PICKLE_FILE="rooms.pkl"
 
 #host addr  , client addr (room_nameの中に書き込めばいい)
 #rooms = {}  # {(room_name,host_addr) : {addr: (token, last_active), ...}}
@@ -40,7 +41,7 @@ class Room:
         if is_host:
             self.host_token = token     #hostに関する記録処理はhashmap上手に利用すれば，host_user,host_tokenのうちどちらかのみ利用すればいいが，今は楽なので，両方記述している．
 
-        share_data_content = {"host_addr":self.token_ip[self.host_token][0],"clients":{address[0]:(token,time.time())}} #UDPサーバーと共有するデータ
+        share_data_content = {"host_addr":self.token_ip[self.host_token],"clients":{address[0]:(token,time.time())}} #UDPサーバーと共有するデータ
     
 
         return token,share_data_content
@@ -84,7 +85,14 @@ class Server:
         except Exception as e:
             print(e)
 
-        
+    def load_rooms(self):
+        try:
+            with open(PICKLE_FILE, 'rb') as f:
+                rooms = pickle.load(f)
+                return rooms
+        except FileNotFoundError:
+            return {}
+
     
     def receive_response(self,client_socket,client_address): 
         #リクエストを受信し，処理を行う
@@ -117,6 +125,8 @@ class Server:
                     token,share_data_content = new_room.setting_room(True,host_user_name,client_address) #生成したtokenを受け取る＋TCPサーバと共有するRoom管理オブジェクトを受け取る．
                     self.room_list.append(new_room) #ルームの登録
 
+                    #UDPが編集したデータshare_data_list読み込む
+                    self.share_data_list = self.load_rooms()
                     self.share_data_list[room_name] = share_data_content #share_data_content = {"host_addr":(ip,port),"clients":{(ip1,port1),...}}"
                     #joinの場合はルームオブジェクトの，オブジェクト取り出し，　rooms[room_name]で取り出せる辞書型を定義している必要がある．　この辞書の，rooms[room_name][host_addr] と rooms[room_name][clients][(ipaddr,port)] = (token,last_active) を追加する．
                     logging.debug("TCP と共有するデータ:%s",self.share_data_list)
@@ -131,8 +141,8 @@ class Server:
                     if  room is not None:
                         user_name = operation_payload 
                         token,share_data_content = room.setting_room(False,user_name,client_address)
-                        #シェアするデータをデシリアライズ化してlocal fileにデータ書き込む
-
+                    #share_data_list読み込む
+                        self.share_data_list = self.load_rooms()
                         self.share_data_list[room_name]["clients"][client_address[0]]= (token,time.time())
 
                         logging.debug("TCP と共有するデータ:%s",self.share_data_list)

@@ -6,6 +6,7 @@ import time
 import pickle
 import logging
 
+
 #デバッグのためのlog追加と，timeout時間変更している
 logging.basicConfig(level = logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -119,7 +120,7 @@ def main():
           logging.debug("correct token: %s",rooms[room]['clients'][addr[0]][0])
           logging.debug("user token:%s",token)
           continue
-      
+
       for room_addr in rooms[room]['clients'].keys():
           logging.debug("test debug:%s",room_addr)
           if room_addr == addr[0]:
@@ -137,7 +138,7 @@ def main():
     except Exception as e:
       e_type,e_object,e_traceback = sys.exc_info()
       print(f"エラー: {e}")
-      
+
       print(f"行::{e_traceback.tb_lineno}")
       continue
 
