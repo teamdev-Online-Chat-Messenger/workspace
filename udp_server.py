@@ -140,7 +140,7 @@ def main():
       rooms[room]['clients'][addr] = (token, time.time())
       print(f"{room}, {addr}: {message.decode('utf-8')}")
 
-      broadcast_message(sock,room,addr,data)
+      broadcast_message(sock,room,addr,message)
 
     except Exception as e:
       print(f"エラー: {e}")

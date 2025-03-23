@@ -60,9 +60,11 @@ class Client:
         self.udp_send_messages(room_name, token)
 
     def udp_receive_messages(self):
-        while True:
-            message, _ = self.udp_socket.recvfrom(4096)
-            logging.info("Received UDP message: %s", message.decode('utf-8'))
+      while True:
+        data, addr = self.udp_socket.recvfrom(4096)
+        message = data.decode('utf-8')
+        # 入力プロンプトと被らないように表示を調整
+        print(f"\nReceive message: {message}\nEnter your message:", end='', flush=True)
 
     def udp_send_messages(self, room_name, token):
         header = len(room_name.encode('utf-8')).to_bytes(1, 'big') + len(token.encode('utf-8')).to_bytes(1, 'big')
