@@ -90,50 +90,45 @@ def createTcrpHeader(room_name,room_name_size,user_name,user_name_size):
             len(payload).to_bytes(29, 'big')
         )
 
-        tcp_socket.send(trcp_header + room_name.encode('utf-8') + payload)
+        tcp_socket.send(trcp_header + room_name.encode('utf-8') + payload) #リクエストをTCPサーバへ送信
 
         if operation == 1:
-            receive_password_setting = tcp_socket.recv(1024) #OPが1のとき，TCPサーバからパスワードを設定するか確認するメッセージが届く．
+            receive_password_setting = tcp_socket.recv(1024) #OP==1のとき，TCPサーバからpasswordを設定するか確認するメッセージが届く．
             rsize = receive_password_setting[0]
             logging.info(receive_password_setting[32+rsize:].decode('utf-8'))
+            
             while True:
-                password_message = input('ypassword or n --> ') #通信回数削減のために y　なら，その直後に設定するパスワードを打ち込む
+                password_message = input('Enter no or password (more than 2 characters) --> ') 
                 
-                if not password_message: 
+                if len(password_message) <= 1: 
                     continue
-                if password_message[0] in ('n','N') and len(password_message) == 1:
+                if password_message.lower() == "no":
                     break
-                if password_message[0] in ('Y','y') and len(password_message) >= 2:
+                if password_message:
                     break
-            tcp_socket.send(len(room_name).to_bytes(1, 'big')+operation.to_bytes(1, 'big')+state.to_bytes(1, 'big')+len(password_message.encode('utf-8')).to_bytes(29, 'big')+room_name.encode('utf-8') + password_message.encode('utf-8')) #TCPサーバに対してパスワード設定を送信
+            tcp_socket.send(len(room_name).to_bytes(1, 'big')+operation.to_bytes(1, 'big')+state.to_bytes(1, 'big')+len(password_message.encode('utf-8')).to_bytes(29, 'big')+room_name.encode('utf-8') + password_message.encode('utf-8')) #TCPサーバに対してpassword設定を送信
 
         elif operation == 2:
-            receive_password_setting = tcp_socket.recv(1024) #OPが2のとき，passwordが必要であれば"Need Password" 不必要であれば" "空文字が送信される
-            logging.info(receive_password_setting.decode('utf-8'))
-            if receive_password_setting.decode('utf-8') != " ":   #インデックス指定
-                logging.info("　You must send password ")
-                password_message = input("enter room password")        
+            receive_password_setting = tcp_socket.recv(1024) #OPが2のとき，passwordが必要であればTCPサーバから"Need Password" 不要であれば" "空文字が送信される
+            if receive_password_setting.decode('utf-8') != " ":   #roomにパスワードが設定されていないとき" "を受信する
+                password_message = input("enter room password --> ")        
             else:
-                password_message = ""        
-            tcp_socket.send(len(room_name).to_bytes(1, 'big')+operation.to_bytes(1, 'big')+state.to_bytes(1, 'big')+len(password_message.encode('utf-8')).to_bytes(29, 'big')+room_name.encode('utf-8') + password_message.encode('utf-8')) #TCPサーバに対してパスワード設定を送信
-    
+                password_message = ""      
 
-        # ステータスコードの受け取り
-        responsed_status_code_header = tcp_socket.recv(32) 
+            tcp_socket.send(len(room_name).to_bytes(1, 'big')+operation.to_bytes(1, 'big')+state.to_bytes(1, 'big')+len(password_message.encode('utf-8')).to_bytes(29, 'big')+room_name.encode('utf-8') + password_message.encode('utf-8')) #TCPサーバに対してパスワード設定を送信
+
+        responsed_status_code_header = tcp_socket.recv(1024) #ステータスコードの受け取り
 
         responsed_room_name_size = responsed_status_code_header[0]
         #responsed_state = responsed_status_code_header[2]
         responsed_payload_size = int.from_bytes(responsed_status_code_header[3:32],'big')
-
         responsed_status_code = tcp_socket.recv(responsed_room_name_size+responsed_payload_size)
-
-
         #responsed_room_name = responsed_status_code[0:respnsed_room_name_size]].decode('utf-8')
         responsed_payload = responsed_status_code[responsed_room_name_size:len(responsed_status_code)].decode('utf-8')
 
-        logging.info("Status Code:%s",responsed_payload)
+        logging.info("Status Code:%s",responsed_payload) #ステータスコード表示
 
-        responsed_token = tcp_socket.recv(1024)
+        responsed_token = tcp_socket.recv(1024) #ステータスコードに続いて，tokenがTCPサーバから送信される．もし，エラーであれば "No Token" を受信する．
         responsed_room_name_size = responsed_token[0]
         #responsed_state = responsed_token[2]
         #responsed_payload_size = int.from_bytes(responsed_token[3:32],'big')
@@ -146,9 +141,9 @@ def createTcrpHeader(room_name,room_name_size,user_name,user_name_size):
 
     except Exception as e:
         e_type,e_object,e_traceback = sys.exc_info()
-        print(f"エラー: {e}")
-        print(f"行::{e_traceback.tb_lineno}")
-        return "No token"
+        logging.info("Error:%s",e)
+        logging.info("line %s",e_traceback.tb_lineno)
+
     finally:
         tcp_socket.close()    
 
@@ -181,7 +176,7 @@ def create_udp_socket():
 
     return sock
 
-def send_messages(room_name,udp_sock,thread1):
+def send_messages(room_name,udp_sock):
     try:
          while room_name in room_name_token:
             message = generate_udp_data(room_name,room_name_token[room_name],False) 
@@ -189,10 +184,16 @@ def send_messages(room_name,udp_sock,thread1):
             udp_sock.sendto(message,udp_server_address)
          logging.debug("send_messages finish")
 
+    except OSError as e:     #receive側でsocket closeしているので，
+        if e.errno == errno.EBADF:
+            logging.info("Socket Already Closed")
+        else:
+            logging.info("Error:%s",e)
+
     except Exception as e:
         e_type,e_object,e_traceback = sys.exc_info()
-        print(f"エラー: {e}")
-        print(f"行::{e_traceback.tb_lineno}")
+        logging.info("Error:%s",e)
+        logging.info("line %s",e_traceback.tb_lineno)
 
 
 def receive_messages(udp_sock):
@@ -228,9 +229,10 @@ def start_client(udp_sock):
         token = "No token"
         while token == "No token":
             room_name,room_name_size = getRoomInfo()
-            token = createTcrpHeader(room_name,room_name_size,user_name,user_name_size) #TCPサーバと通信
-            logging.info("token:::%s",token)
-        room_name_token[room_name] = token
+            token = createTcrpHeader(room_name,room_name_size,user_name,user_name_size) #TCPサーバと通信 生成したtoken・トークンエラー"No Token" が戻る
+            logging.debug("token:%s",token)
+        room_name_token[room_name] = token #クライアントがtokenを所持しているroomの管理を行う辞書の更新
+
         logging.debug("room_name_token:%s",room_name_token)
 
         while True:
@@ -250,7 +252,8 @@ def start_client(udp_sock):
         initial_config_message = generate_udp_data(room_name,token,True) #初回の設定用メッセージならTrue
         udp_sock.sendto(initial_config_message,udp_server_address)#udpチャットルームにjoinした瞬間にサーバへパケット送信して，udpサーバにこのクライアントのポート伝達
 
-        send_messages(room_name,udp_sock,thread1)#chatの開始
+        logging.info("Enterd Room")
+        send_messages(room_name,udp_sock)#chatの開始
 
     except Exception as e:
         e_type,e_object,e_traceback = sys.exc_info()
