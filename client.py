@@ -91,8 +91,6 @@ def createTcrpHeader(room_name,room_name_size,user_name,user_name_size):
             len(payload).to_bytes(29, 'big')
         )
 
-        if operation == 2:
-            logging.info("trcp_header:%s",trcp_header)
         tcp_socket.send(trcp_header + room_name.encode('utf-8') + payload) #リクエストをTCPサーバへ送信
 
         if operation == 1:
@@ -162,7 +160,7 @@ def generate_message():
     message = input("Enter Your Message --> ")
     return message
 
-def generate_udp_data(room_name,token,is_ini_message): #is_ini_message == True なら初回udpサーバへの接続メッセージ生成
+def generate_udp_data(user_name,room_name,token,is_ini_message): #is_ini_message == True なら初回udpサーバへの接続メッセージ生成
     #header:RoomNameSize(1)+TokenSize(1)
     #body: RoomName + Token + Message
     header = create_message_header(room_name,token)
@@ -182,10 +180,10 @@ def create_udp_socket():
 
     return sock
 
-def send_messages(room_name,udp_sock):
+def send_messages(user_name,room_name,udp_sock):
     try:
          while room_name in room_name_token:
-            message = generate_udp_data(room_name,room_name_token[room_name],False) 
+            message = generate_udp_data(user_name,room_name,room_name_token[room_name],False) 
             logging.debug("sendto udp from cliet: data:%s",message)
             udp_sock.sendto(message,udp_server_address)
          logging.debug("send_messages finish")
@@ -260,11 +258,11 @@ def start_client():
             break   
 
         logging.debug("Initial message is sent to udp server:room:%s",room_name)
-        initial_config_message = generate_udp_data(room_name,token,True) #初回の設定用メッセージならTrue
+        initial_config_message = generate_udp_data(user_name,room_name,token,True) #初回の設定用メッセージならTrue
         udp_sock.sendto(initial_config_message,udp_server_address)#udpチャットルームにjoinした瞬間にサーバへパケット送信して，udpサーバにこのクライアントのポート伝達
 
         logging.info("Enterd Room")
-        send_messages(room_name,udp_sock)#chatの開始
+        send_messages(user_name,room_name,udp_sock)#chatの開始
 
     except Exception as e:
         e_type,e_object,e_traceback = sys.exc_info()
