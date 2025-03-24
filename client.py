@@ -3,6 +3,7 @@ import threading
 import logging
 import time
 import sys
+import errno
 import os
 
 user_name = ""
@@ -90,6 +91,8 @@ def createTcrpHeader(room_name,room_name_size,user_name,user_name_size):
             len(payload).to_bytes(29, 'big')
         )
 
+        if operation == 2:
+            logging.info("trcp_header:%s",trcp_header)
         tcp_socket.send(trcp_header + room_name.encode('utf-8') + payload) #リクエストをTCPサーバへ送信
 
         if operation == 1:
@@ -110,23 +113,25 @@ def createTcrpHeader(room_name,room_name_size,user_name,user_name_size):
 
         elif operation == 2:
             receive_password_setting = tcp_socket.recv(1024) #OPが2のとき，passwordが必要であればTCPサーバから"Need Password" 不要であれば" "空文字が送信される
-            if receive_password_setting.decode('utf-8') != " ":   #roomにパスワードが設定されていないとき" "を受信する
+            rsize = receive_password_setting[0]
+            if receive_password_setting[32+rsize:].decode('utf-8') != " ":   #roomにパスワードが設定されていないとき" "を受信する
                 password_message = input("enter room password --> ")        
             else:
                 password_message = ""      
 
             tcp_socket.send(len(room_name).to_bytes(1, 'big')+operation.to_bytes(1, 'big')+state.to_bytes(1, 'big')+len(password_message.encode('utf-8')).to_bytes(29, 'big')+room_name.encode('utf-8') + password_message.encode('utf-8')) #TCPサーバに対してパスワード設定を送信
 
-        responsed_status_code_header = tcp_socket.recv(1024) #ステータスコードの受け取り
-
+        responsed_status_code_header = tcp_socket.recv(32) #ステータスコードのヘッダーの受け取り
+        logging.debug("code:::%s",responsed_status_code_header)
         responsed_room_name_size = responsed_status_code_header[0]
         #responsed_state = responsed_status_code_header[2]
-        responsed_payload_size = int.from_bytes(responsed_status_code_header[3:32],'big')
-        responsed_status_code = tcp_socket.recv(responsed_room_name_size+responsed_payload_size)
+        responsed_payload_size = int.from_bytes(responsed_status_code_header[3:32],'big') 
+
+        responsed_status_code = tcp_socket.recv(responsed_room_name_size+responsed_payload_size)#ステータスコード本体の受け取り
         #responsed_room_name = responsed_status_code[0:respnsed_room_name_size]].decode('utf-8')
         responsed_payload = responsed_status_code[responsed_room_name_size:len(responsed_status_code)].decode('utf-8')
 
-        logging.info("Status Code:%s",responsed_payload) #ステータスコード表示
+        logging.info("Status Code:%s",responsed_payload) 
 
         responsed_token = tcp_socket.recv(1024) #ステータスコードに続いて，tokenがTCPサーバから送信される．もし，エラーであれば "No Token" を受信する．
         responsed_room_name_size = responsed_token[0]
@@ -164,7 +169,8 @@ def generate_udp_data(room_name,token,is_ini_message): #is_ini_message == True �
     if is_ini_message:
         message = "New User:"+user_name+ " Joined"
     else:
-        message = user_name +":"+ generate_message()
+        message = user_name +" :"+ generate_message()
+
     body = room_name.encode('utf-8')+token.encode('utf-8')+message.encode('utf-8')
 
     return header + body
@@ -216,16 +222,21 @@ def receive_messages(udp_sock):
 
     except Exception as e:
         e_type,e_object,e_traceback = sys.exc_info()
-        print(f"エラー: {e}")
-        print(f"行::{e_traceback.tb_lineno}")
+        logging.info("Error:%s",e)
+        logging.info("line %s",e_traceback.tb_lineno)
         udp_sock.close()
 
     finally:
         udp_sock.close()
 
 
-def start_client(udp_sock):
+def start_client():
     try:
+        udp_sock = create_udp_socket()
+        user_name, user_name_size = getUserName()
+        thread1 = threading.Thread(target=receive_messages,args=(udp_sock,),daemon=True) #メッセージ受信用のスレッド
+        thread1.start()
+
         token = "No token"
         while token == "No token":
             room_name,room_name_size = getRoomInfo()
@@ -257,16 +268,14 @@ def start_client(udp_sock):
 
     except Exception as e:
         e_type,e_object,e_traceback = sys.exc_info()
-        print(f"エラー: {e}")
-        print(f"行::{e_traceback.tb_lineno}")
+        logging.info("Error:%s",e)
+        logging.info("line %s",e_traceback.tb_lineno)
+    
+    finally:
+            udp_sock.close()
+
+
+
 
 if __name__ == "__main__":
-    try:
-        udp_sock = create_udp_socket()
-        user_name, user_name_size = getUserName()
-        thread1 = threading.Thread(target=receive_messages,args=(udp_sock,),daemon=True) #メッセージ受信用のスレッド
-        thread1.start()
-        start_client(udp_sock)
-    finally:
-        udp_sock.close()
-
+    start_client()

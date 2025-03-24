@@ -5,6 +5,7 @@ import secrets
 import pickle
 import json
 import logging
+import sys
 
 logging.basicConfig(level = logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 PICKLE_FILE="rooms.pkl" #TCPサーバとUDPサーバで管理するオブジェクト共有（ 生成された部屋名やそのホスト，ユーザ，トークン，最終オンライン時刻の管理）
@@ -53,14 +54,13 @@ class Server:
                 return r
         return None
     
-    def make_message(self,room_name,operation,state,tkn): #メッセージをTCRP に沿って処理 @staticにしていいかも
+    def make_message(self,room_name,operation,state,tkn): #メッセージをTCRP に沿って処理 
         #header作成
         try:
             room_name_enc = room_name.encode('utf-8') #room_nameのエンコード
             room_name_size = len(room_name_enc).to_bytes(1,'big') #数値からバイトへ
             operation_byte = operation.to_bytes(1,'big')
             state_byte = state.to_bytes(1,'big')
-            logging.debug("Message content:%s",tkn)
             
             if tkn is None:
                 tkn = "No token"
@@ -70,8 +70,6 @@ class Server:
             #headerとbodyの結合
             data = room_name_size + operation_byte + state_byte + operation_payload_size + room_name_enc + message_enc   
             
-            logging.debug(" send ----> header + Messsage content :%s",data)
-
             return data
         
         except Exception as e:
@@ -93,8 +91,12 @@ class Server:
                     status_code = ""
                     while not(status_code == "OP1OK" or status_code == "OP2OK"): #ステータスコードが正常なもの以外は，相手クライアントとの接続を残して，再度正常になるまで，通信を続ける
                         try:
-                            header = client_socket.recv(self.HEADER_SIZE) #header(RoomNameSize + Operation + State +の受信
-                            logging.debug("receive header from client:%s",header)
+                            header = client_socket.recv(self.HEADER_SIZE) #headerの受信
+                            while len(header) < self.HEADER_SIZE: #万が一ヘッダーサイズ分読み取れていない場合の処理
+                                additional_message = client_socket.recv(self.HEADER_SIZE - len(header))
+                                header += additional_message
+                            logging.info("header-->%s",header)
+                            
                             room_name_size = header[0] 
                             operation = header[1]
                             state = header[2]
@@ -104,8 +106,7 @@ class Server:
                             
                             room_name = body_message[0:room_name_size].decode('utf-8')
                             operation_payload = body_message[room_name_size:len(body_message)].decode('utf-8')
-                            logging.debug("receive payload from client: room_name:%s operation:%s state:%s payload:%s", room_name, operation, state, operation_payload)
-
+                          
                             token = None
                             
                             #udpサーバーが書き込んだ共有データの読み込み
@@ -146,44 +147,50 @@ class Server:
                                         self.room_password[room_name] = password  #roomに対するパスワードの設定
                                         logging.debug("room_password:%s",self.room_password) 
 
-
                             elif operation == 2: #ユーザのルーム参加
                                 room = self.find_room(room_name) #ユーザが指定したroomを取得・存在しなければNone
-                                if  room is not None:
+                                if room is None:
+                                    temp_message = "ROOM NOT FOUND"
+                                    client_socket.send(self.make_message(room_name,0,state+1,temp_message))
+                                    status_code = "ROOM NOT FOUND"
+                                    token = None
+                                else:
                                     user_name = operation_payload 
                                     #passwordを要求
-                                    if room_name in self.room_password:
+                                    if room_name in self.room_password.keys():
                                         temp_message = "need password..."
-                                        client_socket.send(self.make_message(room_name,0,state+1,temp_message)) #password
-                                    else:
+                                        client_socket.send(self.make_message(room_name,0,state+1,temp_message)) #passwordをクライアントへ要求するメッセージを送信                                  
+                                        recv_password_data = client_socket.recv(1024) #クライアントからpassword の取得（password未設定の場合クライアントからは""が送信される．より良い処理方法があると考えられるが，現状愚直に実装する）           
+                                        room_size = recv_password_data[0]
+                                        password = recv_password_data[32+room_size:32+len(recv_password_data)].decode('utf-8')
+                                        if password == self.room_password[room_name]: #passwordが正解であれば，通常通りtokenを生成して，クライアントへ送信
+                                            token,share_data_content = room.setting_room(False,user_name,client_address)
+                                            self.share_data_list[room_name]["clients"][client_address[0]]= (token,time.time())
+
+                                            logging.debug("TCP と共有するデータ:%s",self.share_data_list)
+                                            with open("rooms.pkl","wb") as f:
+                                                pickle.dump(self.share_data_list,f)
+                                            status_code = "OP2OK"  #ステータスメッセージ
+
+                                        else: #passwordを間違えていれば，status_codeはエラー かつ token = None とする"
+                                            logging.info("incorrect password")
+                                            status_code = " INCORRECT PASSWORD"
+                                            token = None                
+                                    
+                                    else: #passwordがルームに設定されていないとき
                                         temp_message = " "
                                         client_socket.send(self.make_message(room_name,0,state+1,temp_message)) #passwordが設定されていなくても，recvをクライアント側で記述しているので，空文字送信することで，クライアント側の処理をすすめる
-
-                                    recv_password_data = client_socket.recv(1024) #クライアントからpassword の取得（password未設定の場合クライアントからは""が送信される．より良い処理方法があると考えられるが，現状愚直に実装する）           
-                                    room_size = recv_password_data[0]
-                                    password = recv_password_data[32+room_size:32+len(recv_password_data)].decode('utf-8')
-                
-                                    if password == self.room_password[room_name]: #passwordが正解であれば，通常通りtokenを生成して，クライアントへ送信
+                                        recv_password_data = client_socket.recv(1024) #クライアントからpassword の取得（password未設定の場合クライアントからは""が送信される．より良い処理方法があると考えられるが，現状愚直に実装する）           
+                                        room_size = recv_password_data[0]
+                                        password = recv_password_data[32+room_size:32+len(recv_password_data)].decode('utf-8')
                                         token,share_data_content = room.setting_room(False,user_name,client_address)
                                         self.share_data_list[room_name]["clients"][client_address[0]]= (token,time.time())
-
-                                        logging.debug("TCP と共有するデータ:%s",self.share_data_list)
                                         with open("rooms.pkl","wb") as f:
                                             pickle.dump(self.share_data_list,f)
                                         status_code = "OP2OK"  #ステータスメッセージ
-                                    else:#パスワードを間違えていれば，status_codeはエラー かつ token = None とする"
-                                        logging.info("incorrect password")
-                                        status_code = " INCORRECT PASSWORD"
-                                        token = None
-                                else:
-                                    status_code = " ROOM NOT FOUND ERROR" #ステータス
-                                    token = None
                             else:
                                     status_code = " INVALID OP ERROR"
                 
-                            if token is not None:
-                                logging.debug("token:%s",token)
-
                             client_socket.send(self.make_message(room_name,0,state+1,status_code)) #ステータスコード送信処理（room_name,operation,status,messageが引数）
                             client_socket.send(self.make_message(room_name,0,state+2,token)) #tokenをクライアントに送信する（TCRPの形式に沿ってメッセージを送信するのでroom_name + tokenの形）ので，クライアント側でtokenのみ抽出する必要がある．
                     
@@ -191,7 +198,9 @@ class Server:
                             print("client disconnected")
                               
                         except Exception as e:
-                            print(e)
+                            e_type,e_object,e_traceback = sys.exc_info()
+                            logging.info("Error:%s",e)
+                            logging.info("line %s",e_traceback.tb_lineno)
                             status_code = " BAD STATUS"
                             token = None
                             client_socket.send(self.make_message(room_name,0,state+1,status_code)) #ステータスコード送信処理（room_name,operation,status,messageが引数）
@@ -214,8 +223,9 @@ class Server:
                         thread = threading.Thread(target = self.receive_response,args = (client_socket,addr)) #各クライアントと通信を行うためのスレッド
                         thread.start()
         except Exception as e:
+            e_type,e_object,e_traceback = sys.exc_info()
             logging.info("Error:%s",e)
-
+            logging.info("line %s",e_traceback.tb_lineno)
 
 if __name__ == "__main__":
     my_server = Server("127.0.0.1",9000)
