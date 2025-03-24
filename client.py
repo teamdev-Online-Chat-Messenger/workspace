@@ -212,10 +212,8 @@ def receive_messages(udp_sock):
             logging.info("\n receive message:%s \n",message[2+room_name_size+token_size:len(message)].decode('utf-8'))
             if token_size == 0: #ホストが退出したか，自身がサーバから削除された
                 logging.info("Finish Room")
-                del room_name_token[message[2:2+room_name_size].decode('utf-8')] #clientの所持する辞書から　削除されたroom名:token のtokenを削除しておく
-                time.sleep(1)
-#                start_client(udp_sock)
                 udp_sock.close()
+                del room_name_token[message[2:2+room_name_size].decode('utf-8')] #clientの所持する辞書から　削除されたroom名:token のtokenを削除しておく
                 break
 
     except Exception as e:
