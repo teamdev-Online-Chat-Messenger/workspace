@@ -1,5 +1,4 @@
 # Online Chat Messenger
-workspace for online_chat_messenger
 
 ## 概要
 チャットメッセンジャー
@@ -22,8 +21,8 @@ python3 udp_server.py
 python3 client.py
 ```
 
-###　ルームの作成および参加（ホスト）
 
+###　ルームの作成および参加
 はじめに，ホストユーザはIPアドレスを選択する．（現在ローカルの1台のPCで簡易的に作成した状態で，ローカルループバックアドレスを用いているためこの操作が必要）
 <br>
 続いて利用するポート番号を選択する．
