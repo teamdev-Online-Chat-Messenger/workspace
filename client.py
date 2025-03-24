@@ -1,13 +1,15 @@
 import socket
 import threading
 import logging
+import time
+import sys
+import os
 
 user_name = ""
 room_name_token = {} #userが指定した部屋名と，それに対応したtokenを記録
 
 logging.basicConfig(level = logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 tcp_server_addr = "127.0.0.1"
@@ -19,13 +21,10 @@ udp_server_port = 12345
 user_ip = input("Enter IP Address (127.0.0.2~) --> ") #testのために異なるローカルアドレス割り当てるための記述．実際にはIPを選択させる処理はいらない
 user_udp_port = input("Enter Port for UDP --> ")
 
-tcp_socket.bind((user_ip,0))
 
 
 tcp_server_address = (tcp_server_addr, tcp_server_port)
 udp_server_address = (udp_server_addr, udp_server_port)
-
-tcp_socket.connect(tcp_server_address)
 
 
 class Client:
@@ -67,51 +66,65 @@ def getRoomInfo():
         # ルーム名の記述
         room_name = input("Enter Your Room Name --> ")
         if len(room_name) == 0:
+            logging.info("room_name length is 0 error")
             continue
         room_name_size = len(room_name.encode('utf-8'))
         return room_name, room_name_size
 
 # tcrpヘッダーの作成
 def createTcrpHeader(room_name,room_name_size,user_name,user_name_size):
-    operation = getOperation()
-    state = 0
+    try:
+        tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        tcp_socket.bind((user_ip,0))
+        tcp_socket.connect(tcp_server_address)
 
-    payload = user_name.encode('utf-8')
+        operation = getOperation()
+        state = 0
 
-    trcp_header = (
-        len(room_name).to_bytes(1, 'big') +
-        operation.to_bytes(1, 'big') +
-        state.to_bytes(1, 'big') +
-        len(payload).to_bytes(29, 'big')
-    )
+        payload = user_name.encode('utf-8')
 
-    tcp_socket.send(trcp_header + room_name.encode('utf-8') + payload)
+        trcp_header = (
+            len(room_name).to_bytes(1, 'big') +
+            operation.to_bytes(1, 'big') +
+            state.to_bytes(1, 'big') +
+            len(payload).to_bytes(29, 'big')
+        )
 
-    # ステータスコードの受け取り
-    responsed_status_code_header = tcp_socket.recv(32) 
+        tcp_socket.send(trcp_header + room_name.encode('utf-8') + payload)
 
-    responsed_room_name_size = responsed_status_code_header[0]
-    #responsed_state = responsed_status_code_header[2]
-    responsed_payload_size = int.from_bytes(responsed_status_code_header[3:32],'big')
+        # ステータスコードの受け取り
+        responsed_status_code_header = tcp_socket.recv(32) 
 
-    responsed_status_code = tcp_socket.recv(responsed_room_name_size+responsed_payload_size)
+        responsed_room_name_size = responsed_status_code_header[0]
+        #responsed_state = responsed_status_code_header[2]
+        responsed_payload_size = int.from_bytes(responsed_status_code_header[3:32],'big')
+
+        responsed_status_code = tcp_socket.recv(responsed_room_name_size+responsed_payload_size)
 
 
-    #responsed_room_name = responsed_status_code[0:respnsed_room_name_size]].decode('utf-8')
-    responsed_payload = responsed_status_code[responsed_room_name_size:len(responsed_status_code)].decode('utf-8')
+        #responsed_room_name = responsed_status_code[0:respnsed_room_name_size]].decode('utf-8')
+        responsed_payload = responsed_status_code[responsed_room_name_size:len(responsed_status_code)].decode('utf-8')
 
-    logging.info("Status Code:%s",responsed_payload)
+        logging.info("Status Code:%s",responsed_payload)
 
-    responsed_token = tcp_socket.recv(1024)
-    responsed_room_name_size = responsed_token[0]
-    #responsed_state = responsed_token[2]
-    #responsed_payload_size = int.from_bytes(responsed_token[3:32],'big')
-    #responsed_room_name = responsed_token[32:32+responsed_room_name_size].decode('utf-8')
-    responsed_payload = responsed_token[32+responsed_room_name_size:len(responsed_token)].decode('utf-8')
+        responsed_token = tcp_socket.recv(1024)
+        responsed_room_name_size = responsed_token[0]
+        #responsed_state = responsed_token[2]
+        #responsed_payload_size = int.from_bytes(responsed_token[3:32],'big')
+        #responsed_room_name = responsed_token[32:32+responsed_room_name_size].decode('utf-8')
+        responsed_payload = responsed_token[32+responsed_room_name_size:len(responsed_token)].decode('utf-8')
 
-    logging.debug("responsed_token:%s",responsed_payload) 
+        logging.debug("responsed_token:%s",responsed_payload) 
 
-    return responsed_payload #受信したトークン
+        return responsed_payload #受信したトークン
+
+    except Exception as e:
+        e_type,e_object,e_traceback = sys.exc_info()
+        print(f"エラー: {e}")
+        print(f"行::{e_traceback.tb_lineno}")
+        return "No token"
+    finally:
+        tcp_socket.close()    
 
 # udp側の処理
 
@@ -142,13 +155,19 @@ def create_udp_socket():
 
     return sock
 
-def send_messages(room_name,token,udp_sock,thread1):
+def send_messages(room_name,udp_sock,thread1):
     try:
-         while True:
-            message = generate_udp_data(room_name,token,False) #現状メッセージ打つたびに部屋名入力しないといけない（要修正）
+         while room_name in room_name_token:
+            message = generate_udp_data(room_name,room_name_token[room_name],False) 
+            logging.debug("sendto udp from cliet: data:%s",message)
             udp_sock.sendto(message,udp_server_address)
-    finally:
-         udp_socket.close()
+         logging.debug("send_messages finish")
+
+    except Exception as e:
+        e_type,e_object,e_traceback = sys.exc_info()
+        print(f"エラー: {e}")
+        print(f"行::{e_traceback.tb_lineno}")
+
 
 def receive_messages(udp_sock):
     logging.debug("receive_messages is called")
@@ -160,39 +179,58 @@ def receive_messages(udp_sock):
             token_size = message[1]
             logging.debug("receive message from udp server:%s",message)
             logging.info("\n receive message:%s \n",message[2+room_name_size+token_size:len(message)].decode('utf-8'))
-            print("Enter Your Message --> ")
+            if token_size == 0: #ホストが退出したか，自身がサーバから削除された
+                logging.info("Finish Room")
+                del room_name_token[message[2:2+room_name_size].decode('utf-8')] #clientの所持する辞書から　削除されたroom名:token のtokenを削除しておく
+                time.sleep(1)
+                start_client(udp_sock)
+                break
+    except Exception as e:
+        e_type,e_object,e_traceback = sys.exc_info()
+        print(f"エラー: {e}")
+        print(f"行::{e_traceback.tb_lineno}")
+
+def start_client(udp_sock):
+    try:
+        token = "No token"
+        while token == "No token":
+            room_name,room_name_size = getRoomInfo()
+            token = createTcrpHeader(room_name,room_name_size,user_name,user_name_size) #TCPサーバと通信
+            logging.info("token:::%s",token)
+        room_name_token[room_name] = token
+        logging.debug("room_name_token:%s",room_name_token)
+
+        while True:
+            # ルーム名の記述
+            room_name = input("Enter Your Room Name To Join Chat Room--> ")
+            if not room_name:  # 空入力のチェック
+                logging.info("Enter Your Room Name")
+                continue
+
+            # クライアントが指定したルーム名に対する token を所持していない場合はエラー
+            if room_name not in room_name_token.keys():
+                logging.info("No Token Error")
+                continue
+            break   
+
+        logging.debug("Initial message is sent to udp server:room:%s",room_name)
+        initial_config_message = generate_udp_data(room_name,token,True) #初回の設定用メッセージならTrue
+        udp_sock.sendto(initial_config_message,udp_server_address)#udpチャットルームにjoinした瞬間にサーバへパケット送信して，udpサーバにこのクライアントのポート伝達
+
+        send_messages(room_name,udp_sock,thread1)#chatの開始
+
+    except Exception as e:
+        e_type,e_object,e_traceback = sys.exc_info()
+        print(f"エラー: {e}")
+        print(f"行::{e_traceback.tb_lineno}")
+
+if __name__ == "__main__":
+    try:
+        udp_sock = create_udp_socket()
+        user_name, user_name_size = getUserName()
+        thread1 = threading.Thread(target=receive_messages,args=(udp_sock,),daemon=True) #メッセージ受信用のスレッド
+        thread1.start()
+        start_client(udp_sock)
     finally:
         udp_sock.close()
-
-
-def main():
-
-    udp_sock = create_udp_socket()
-    thread1 = threading.Thread(target=receive_messages,args=(udp_sock,),daemon=True)
-    thread1.start()
-    token = "No token"
-    
-    while token == "No token":
-        room_name,room_name_size = getRoomInfo()
-        token = createTcrpHeader(room_name,room_name_size,user_name,user_name_size) #createTCPHeader と その内部の送信処理は分けて書いた方がいいので，あとで分ける
-        
-        logging.info("token:::%s",token)
-    room_name_token[room_name] = token
-    while True:
-        # ルーム名の記述
-        room_name = input("Enter Your Room Name To Join Chat Room--> ")
-        #クライアントが指定したルーム名に対するtokenを所持していない場合はエラー
-        if room_name not in room_name_token.keys(): 
-            logging.info("No Token Error")
-            continue        
-        break
-
-    initial_config_message = generate_udp_data(room_name,token,True) #初回の設定用メッセージならTrue
-    udp_sock.sendto(initial_config_message,udp_server_address)#udpチャットルームにjoinした瞬間にサーバへパケット送信して，udpサーバにこのクライアントのポート伝達
-
-    send_messages(room_name,token,udp_sock,thread1)#chatの開始
-    
-if __name__ == "__main__":
-    user_name, user_name_size = getUserName()
-    main()
 

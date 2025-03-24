@@ -6,14 +6,12 @@ import time
 import pickle
 import logging
 
-
-#デバッグのためのlog追加と，timeout時間変更している
 logging.basicConfig(level = logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 
 SERVER_HOST = '0.0.0.0'
 SERVER_PORT = 12345
 BUFFERSIZE = 4096
-TIMEOUT = 600
+TIMEOUT = 20
 CHECK_INTERVAL = 5
 PICKLE_FILE = 'rooms.pkl' #ここは合わせる
 
@@ -32,7 +30,7 @@ def load_rooms():
 
 
 '''一定期間メッセージのないクライアントを削除、ホストが抜けたときにroomを削除'''
-def remove_inactive_clients():
+def remove_inactive_clients(sock):
   while True:
     rooms = load_rooms()
     logging.debug("remove_inactive:: rooms:%s",rooms)
@@ -44,18 +42,46 @@ def remove_inactive_clients():
       for addr in inactive:
         if addr == info['host_addr']:
           print(f"ホスト{addr}が退出しました。　ルーム{room}を閉じます。")
+
+          data = bytearray()
+          data.extend(len(room.encode('utf-8')).to_bytes(1, 'big'))
+          data.extend((0).to_bytes(1, 'big'))
+          idx = len(data)
+          data.extend(room.encode('utf-8'))
+          message = f"ホスト{addr}が退出しました。　ルーム{room}を閉じます。".encode('utf-8')
+          data.extend(message)
+          broadcast_message(sock,rooms,room,addr,data)
+
           del rooms[room]
           delete = True
-          break
+
         else:
           print(f"クライアントがタイムアウトしました: {addr}（ルーム: {room}）")
-          del rooms[room]['clients'][addr]
+          delete = True
+          data = bytearray()
+          data.extend(len(room.encode('utf-8')).to_bytes(1, 'big'))
+          data.extend((0).to_bytes(1, 'big'))
+          idx = len(data)
+          data.extend(room.encode('utf-8'))
+          message = f"メッセージを長時間送信していなかったため，退出しました。".encode('utf-8')
+          data.extend(message)
+          try:
+            del rooms[room]['clients'][addr]
+            sock.sendto(data, (str(addr),int(ip_udp_port[addr])))
+          except Exception as e:
+            logging.debug("Error: %s",e)
+
       if room in rooms and not rooms[room]['clients']:
         print(f"クライアントがいなくなったので、ルーム{room}を閉じました")
         del rooms[room]
         delete = True
+
       if delete:
+
+        logging.debug("after remove_inactive:: rooms:%s",rooms)
+
         with open(PICKLE_FILE, 'wb') as f:
+          logging.debug("after deleted rooms:%s",rooms)
           pickle.dump(rooms, f)
     time.sleep(CHECK_INTERVAL)
 
@@ -65,6 +91,7 @@ def broadcast_message(sock, rooms, room, sender_addr, message):
   logging.debug("broadcast_message is called:rooms:%s",rooms)
   for addr in rooms.get(room, {}).get('clients', {}):
     logging.debug("broad_cast:log: addr %s",addr)
+    logging.debug("sender_addr:%s",sender_addr)
     if addr != sender_addr[0]: #この判定をポート除いて，IPだけで判定する
       try:
         logging.debug("data:%s is sent to Address:%s %s",message,addr,ip_udp_port[addr])
@@ -82,7 +109,7 @@ def main():
   print(f"サーバーを起動しました, {SERVER_HOST}, {SERVER_PORT}")
 
   # 非アクティブなクライアント削除用スレッド
-  thread = threading.Thread(target = remove_inactive_clients, daemon=True)
+  thread = threading.Thread(target = remove_inactive_clients, args = (sock,) ,daemon=True)
   thread.start()
 
   while True:
@@ -115,12 +142,18 @@ def main():
       #クライアントの認証チェック
       flag = True
 
-      #ip:udp_socket の記録しておく
-
       if (room not in rooms) or (rooms[room]['clients'][addr[0]][0] != token):
           logging.info("認証失敗")
           logging.debug("correct token: %s",rooms[room]['clients'][addr[0]][0])
           logging.debug("user token:%s",token)
+          data = bytearray()
+          data.extend(len(room.encode('utf-8')).to_bytes(1, 'big'))
+          data.extend((0).to_bytes(1, 'big'))
+          idx = len(data)
+          data.extend(room.encode('utf-8'))
+          message = f"認証に失敗しました".encode('utf-8')
+          data.extend(message)
+
           continue
 
       for room_addr in rooms[room]['clients'].keys():
@@ -133,6 +166,11 @@ def main():
 
 
       rooms[room]['clients'][addr[0]] = (token, time.time())
+
+      with open(PICKLE_FILE, 'wb') as f:
+          logging.debug("update user last active time:%s",rooms)
+          pickle.dump(rooms, f)      
+      
       print(f"{room}, {addr}: {message.decode('utf-8')}")
 
       broadcast_message(sock,rooms,room,addr,data)

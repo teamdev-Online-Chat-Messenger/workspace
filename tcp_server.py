@@ -13,7 +13,6 @@ PICKLE_FILE="rooms.pkl"#addrを(ip,port)からipのみ記録する形に変更�
 
 class Room:
     def __init__(self,room_name,host_user):
-        #hashmap初期化
         self.room_name = room_name
         self.host_user = host_user
         self.host_token = None
@@ -141,6 +140,11 @@ class Server:
                                 room = self.find_room(room_name)
                                 if  room is not None:
                                     user_name = operation_payload 
+
+                                    #passwordを要求
+
+                                    #あっていたら進　間違えていれば，status_code = "Invalid op error かつ token = None とする"
+
                                     token,share_data_content = room.setting_room(False,user_name,client_address)
                                     self.share_data_list[room_name]["clients"][client_address[0]]= (token,time.time())
 
