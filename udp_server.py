@@ -11,13 +11,14 @@ logging.basicConfig(level = logging.DEBUG, format="%(asctime)s - %(levelname)s -
 SERVER_HOST = '0.0.0.0'
 SERVER_PORT = 12345
 BUFFERSIZE = 4096
-TIMEOUT = 20
+TIMEOUT = 40
 CHECK_INTERVAL = 5
 PICKLE_FILE = 'rooms.pkl' #ここは合わせる
 
 #この形式addr=(ip,port) --> addr=ip　に変更（TCP,UDPソケットで利用するポートが異なるから）
 rooms = {}  #{room_name: {'host_addr': addr, 'clients': {addr: (token, last_active)}},room_name2: {...}}
 ip_udp_port = {}
+
 
 '''pickleからroomsをロードする関数'''
 def load_rooms():

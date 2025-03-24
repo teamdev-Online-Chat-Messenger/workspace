@@ -3,7 +3,6 @@ import time
 import threading
 import secrets
 import pickle
-import sqlite3
 import json
 import logging
 
@@ -40,12 +39,14 @@ class Room:
 
 class Server:
     def __init__(self,server_ip,server_port):
+        
         self.CLIENT_NUM = 10
         self.HEADER_SIZE = 32
         self.udp_socket = None
         self.server_address = (server_ip,server_port)
         self.room_list = []
         self.share_data_list = {} #udpと共有するデータリスト
+        self.room_password = {}
 
     def find_room(self,user_room_name):
         for r in self.room_list:
@@ -117,12 +118,18 @@ class Server:
                             #udpサーバーが書き込んだ共有データの読み込み
                             self.share_data_list = self.load_rooms()
                             
+                            #削除されたルームのパスワードは記録しない
+                            renew_setting_password = {}
+                            for rname in self.room_password.keys():
+                                if rname in self.share_data_list.keys():
+                                    renew_setting_password[rname] = self.room_password[rname]
+
+                            self.room_password = renew_setting_password
+                            
                             #operationに対応した処理
                             if operation == 1: #ルーム生成などのセッティング
-
                                 if room_name in self.share_data_list: #すでに登録済みの部屋名
                                     status_code = "ROOM EXIST ERROR"
-
                                 else:
                                     host_user_name = operation_payload #operation==1のときの，operation_payloadにはユーザ名が入っている．このユーザがRoomのホストとなる．
                                     new_room = Room(room_name,host_user_name) 
@@ -136,22 +143,52 @@ class Server:
                                 
                                     status_code = "OP1OK"  #ステータスコード
 
+                                    temp_message = "setting password ?? (ypassword or n)"
+                                    client_socket.send(self.make_message(room_name,0,state+1,temp_message)) #パスワード設定有無をクライアントへ送信
+                                    recv_password_data = client_socket.recv(1024)
+                                    room_size = recv_password_data[0]
+                                    password = recv_password_data[32+room_size:32+len(recv_password_data)].decode('utf-8')#ypassword の形式
+
+                                    logging.debug("tcp server receive password from client:%s",password)
+                                    if password[0].lower() == 'y':
+                                        self.room_password[room_name] = password[1:]
+                                        logging.debug("room_password:%s",self.room_password)
+
+
+
                             elif operation == 2: #ユーザのルーム参加
                                 room = self.find_room(room_name)
                                 if  room is not None:
                                     user_name = operation_payload 
 
                                     #passwordを要求
+                                    if room_name in self.room_password:
+                                        temp_message = "need password..."
+                                        client_socket.send(self.make_message(room_name,0,state+1,temp_message)) #password
+                                    else:
+                                        temp_message = " "
+                                        client_socket.send(self.make_message(room_name,0,state+1,temp_message)) #password
 
-                                    #あっていたら進　間違えていれば，status_code = "Invalid op error かつ token = None とする"
+                                    recv_password_data = client_socket.recv(1024) #クライアントからpassword の取得            
+                                    room_size = recv_password_data[0]
+                                    password = recv_password_data[32+room_size:32+len(recv_password_data)].decode('utf-8')#ypassword の形式
+                
+                                    if password == self.room_password[room_name]:
+                                        logging.info("correct")
+                                        logging.info("generate token !")
+                                
+                                        #パスワードを間違えていれば，status_code = "Invalid op error かつ token = None とする"
+                                        token,share_data_content = room.setting_room(False,user_name,client_address)
+                                        self.share_data_list[room_name]["clients"][client_address[0]]= (token,time.time())
 
-                                    token,share_data_content = room.setting_room(False,user_name,client_address)
-                                    self.share_data_list[room_name]["clients"][client_address[0]]= (token,time.time())
-
-                                    logging.debug("TCP と共有するデータ:%s",self.share_data_list)
-                                    with open("rooms.pkl","wb") as f:
-                                        pickle.dump(self.share_data_list,f)
-                                    status_code = "OP2OK"  #ステータスコード
+                                        logging.debug("TCP と共有するデータ:%s",self.share_data_list)
+                                        with open("rooms.pkl","wb") as f:
+                                            pickle.dump(self.share_data_list,f)
+                                        status_code = "OP2OK"  #ステータスコード
+                                    else:
+                                        logging.info("incorrect password")
+                                        status_code = " INCORRECT PASSWORD"
+                                        token = None
                                 else:
                                     status_code = " ROOM NOT FOUND ERROR" #ステータス
                                     token = None

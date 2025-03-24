@@ -92,6 +92,32 @@ def createTcrpHeader(room_name,room_name_size,user_name,user_name_size):
 
         tcp_socket.send(trcp_header + room_name.encode('utf-8') + payload)
 
+        if operation == 1:
+            receive_password_setting = tcp_socket.recv(1024) #OPが1のとき，TCPサーバからパスワードを設定するか確認するメッセージが届く．
+            rsize = receive_password_setting[0]
+            logging.info(receive_password_setting[32+rsize:].decode('utf-8'))
+            while True:
+                password_message = input('ypassword or n --> ') #通信回数削減のために y　なら，その直後に設定するパスワードを打ち込む
+                
+                if not password_message: 
+                    continue
+                if password_message[0] in ('n','N') and len(password_message) == 1:
+                    break
+                if password_message[0] in ('Y','y') and len(password_message) >= 2:
+                    break
+            tcp_socket.send(len(room_name).to_bytes(1, 'big')+operation.to_bytes(1, 'big')+state.to_bytes(1, 'big')+len(password_message.encode('utf-8')).to_bytes(29, 'big')+room_name.encode('utf-8') + password_message.encode('utf-8')) #TCPサーバに対してパスワード設定を送信
+
+        elif operation == 2:
+            receive_password_setting = tcp_socket.recv(1024) #OPが2のとき，passwordが必要であれば"Need Password" 不必要であれば" "空文字が送信される
+            logging.info(receive_password_setting.decode('utf-8'))
+            if receive_password_setting.decode('utf-8') != " ":   #インデックス指定
+                logging.info("　You must send password ")
+                password_message = input("enter room password")        
+            else:
+                password_message = ""        
+            tcp_socket.send(len(room_name).to_bytes(1, 'big')+operation.to_bytes(1, 'big')+state.to_bytes(1, 'big')+len(password_message.encode('utf-8')).to_bytes(29, 'big')+room_name.encode('utf-8') + password_message.encode('utf-8')) #TCPサーバに対してパスワード設定を送信
+    
+
         # ステータスコードの受け取り
         responsed_status_code_header = tcp_socket.recv(32) 
 
@@ -183,12 +209,19 @@ def receive_messages(udp_sock):
                 logging.info("Finish Room")
                 del room_name_token[message[2:2+room_name_size].decode('utf-8')] #clientの所持する辞書から　削除されたroom名:token のtokenを削除しておく
                 time.sleep(1)
-                start_client(udp_sock)
+#                start_client(udp_sock)
+                udp_sock.close()
                 break
+
     except Exception as e:
         e_type,e_object,e_traceback = sys.exc_info()
         print(f"エラー: {e}")
         print(f"行::{e_traceback.tb_lineno}")
+        udp_sock.close()
+
+    finally:
+        udp_sock.close()
+
 
 def start_client(udp_sock):
     try:
