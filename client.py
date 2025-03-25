@@ -95,9 +95,12 @@ def createTcrpHeader(room_name,room_name_size,user_name,user_name_size):
 
         if operation == 1:
             receive_password_setting = tcp_socket.recv(1024) #OP==1のとき，TCPサーバからpasswordを設定するか確認するメッセージが届く．
+            
             rsize = receive_password_setting[0]
             logging.info(receive_password_setting[32+rsize:].decode('utf-8'))
-            
+            if receive_password_setting[32+rsize:].decode('utf-8') == "ROOM ALREADY EXIST ERROR":
+                return "No token"
+
             while True:
                 password_message = input('Enter no or password (more than 2 characters) --> ') 
                 
@@ -111,8 +114,15 @@ def createTcrpHeader(room_name,room_name_size,user_name,user_name_size):
 
         elif operation == 2:
             receive_password_setting = tcp_socket.recv(1024) #OPが2のとき，passwordが必要であればTCPサーバから"Need Password" 不要であれば" "空文字が送信される
+            
+            #もしルームが見つからなければ先にエラー出す    
+            
             rsize = receive_password_setting[0]
-            if receive_password_setting[32+rsize:].decode('utf-8') != " ":   #roomにパスワードが設定されていないとき" "を受信する
+            
+            if receive_password_setting[32+rsize:].decode('utf-8') == "ROOM NOT FOUND":
+                return "No token" #No tokenが返された場合，再度header作成する
+            
+            elif receive_password_setting[32+rsize:].decode('utf-8') != " ":   #roomにパスワードが設定されていないとき" "を受信する
                 password_message = input("enter room password --> ")        
             else:
                 password_message = ""      
@@ -128,6 +138,10 @@ def createTcrpHeader(room_name,room_name_size,user_name,user_name_size):
         responsed_status_code = tcp_socket.recv(responsed_room_name_size+responsed_payload_size)#ステータスコード本体の受け取り
         #responsed_room_name = responsed_status_code[0:respnsed_room_name_size]].decode('utf-8')
         responsed_payload = responsed_status_code[responsed_room_name_size:len(responsed_status_code)].decode('utf-8')
+
+        if responsed_payload == "ROOM ALREADY EXIST ERROR":
+                logging.info("ROOM ALREADY EXIST ERROR")
+                return "No token"
 
         logging.info("Status Code:%s",responsed_payload) 
 
@@ -234,6 +248,7 @@ def start_client():
         thread1.start()
 
         token = "No token"
+        room_name = ""
         while token == "No token":
             room_name,room_name_size = getRoomInfo()
             token = createTcrpHeader(room_name,room_name_size,user_name,user_name_size) #TCPサーバと通信 生成したtoken・トークンエラー"No Token" が戻る
@@ -242,24 +257,14 @@ def start_client():
 
         logging.debug("room_name_token:%s",room_name_token)
 
-        while True:
-            # ルーム名の記述
-            room_name = input("Enter Your Room Name To Join Chat Room--> ")
-            if not room_name:  # 空入力のチェック
-                logging.info("Enter Your Room Name")
-                continue
-
-            # クライアントが指定したルーム名に対する token を所持していない場合はエラー
-            if room_name not in room_name_token.keys():
-                logging.info("No Token Error")
-                continue
-            break   
+        if room_name not in room_name_token.keys():
+            logging.info("No Token Error")
 
         logging.debug("Initial message is sent to udp server:room:%s",room_name)
         initial_config_message = generate_udp_data(user_name,room_name,token,True) #初回の設定用メッセージならTrue
         udp_sock.sendto(initial_config_message,udp_server_address)#udpチャットルームにjoinした瞬間にサーバへパケット送信して，udpサーバにこのクライアントのポート伝達
 
-        logging.info("Enterd Room")
+        logging.info("Entered Room")
         send_messages(user_name,room_name,udp_sock)#chatの開始
 
     except Exception as e:

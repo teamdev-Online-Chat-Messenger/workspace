@@ -5,6 +5,7 @@ import threading
 import time
 import pickle
 import logging
+import traceback
 
 logging.basicConfig(level = logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -123,12 +124,10 @@ def main():
 
       ip_udp_port[addr[0]] = addr[1]  #各UDPクライアントのPort番号を記録
 
-    except socket.timeout:
-      continue
-    if len(data) < 2:
-      continue
+      if len(data) < 2:
+        continue
 
-    try:
+
       #プロトコル：最初の一バイトがユーザー名のバイトサイズ
       room_name_size = data[0]
       token_size = data[1]
@@ -155,7 +154,7 @@ def main():
           message = f"認証に失敗しました".encode('utf-8')
           data.extend(message)
 
-          continue
+          continue #TCP,UDPサーバのpickleの書き込み読み込みタイミングの差異で，ユーザが登録される前に読み込んでエラーとなる可能性があるので，再度読み込んでみる
 
       for room_addr in rooms[room]['clients'].keys():
           logging.debug("test debug:%s",room_addr)
@@ -176,11 +175,15 @@ def main():
 
       broadcast_message(sock,rooms,room,addr,data)
 
+    except socket.timeout:
+      continue
+
+
+
     except Exception as e:
       e_type,e_object,e_traceback = sys.exc_info()
-      print(f"エラー: {e}")
-
-      print(f"行::{e_traceback.tb_lineno}")
+      logging.info(f"エラー発生: {type(e).__name__}: {e}")
+      traceback.print_exc()  # 詳細なエラーログを出力
       continue
 
 if __name__ == '__main__':
