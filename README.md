@@ -29,7 +29,7 @@ python3 client.py
 <br>
 そして，TCPサーバからステータスメッセージとチャットルームのためのトークンを受け取る．（表示されるのはステータスメッセージのみ）
 <br>
-最後に，上記で入力したルーム名を再度打ち込み入室が完了し，メッセージの受信・送信が可能となる．
+受信後，メッセージの受信・送信が可能となる．
 <br>
 
 ### パスワード設定時のルーム作成方法例
@@ -40,11 +40,10 @@ Enter User Name --> test_user1
 Enter Your Room Name --> test_room
 Would you like to create a new room or join an existing one? (Type 'create' or 'join') --> create
 Creating a new chat room...
-2025-03-25 01:49:42,621 - INFO - setting password ?? (Enter no or password)
+2025-03-25 19:31:12,958 - INFO - setting password ?? (Enter no or password)
 Enter no or password (more than 2 characters) --> mypassword
-2025-03-25 01:49:49,016 - INFO - Status Code:OP1OK
-Enter Your Room Name To Join Chat Room--> test_room
-2025-03-25 01:49:54,110 - INFO - Enterd Room
+2025-03-25 19:31:20,586 - INFO - Status Code:OP1OK
+2025-03-25 19:31:21,086 - INFO - Entered Room
 ```
 パスワードを非設定にする場合は，mypasswordの部分をnoに変更する．
 
@@ -58,11 +57,14 @@ Enter Your Room Name --> test_room
 Would you like to create a new room or join an existing one? (Type 'create' or 'join') --> join
 Joining an existing chat room...
 enter room password --> mypassword
-2025-03-25 01:52:19,676 - INFO - Status Code:OP2OK
-Enter Your Room Name To Join Chat Room--> test_room
-2025-03-25 01:52:25,132 - INFO - Enterd Room```
+2025-03-25 19:31:26,685 - INFO - Status Code:OP2OK
+2025-03-25 19:31:27,186 - INFO - Entered Room
 
 ```
+
+### チャットの様子
+![image](./img/chat_result.png)
+
 
 ### ホスト退去・サーバからユーザ削除削除
 一定時間ユーザがメッセージを送信しない場合は，サーバのルーム登録者から削除され，メッセージが転送されなくなる．サーバから削除された際には，その旨を通知するメッセージを受信し，プログラムが終了するため，再度ルームへ参加するには，プログラムの再実行が必要となる．
